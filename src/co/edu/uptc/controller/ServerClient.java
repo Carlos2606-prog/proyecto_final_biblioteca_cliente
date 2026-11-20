@@ -8,19 +8,19 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 public class ServerClient {
 
     private static final String DISCONNECTED = "__DISCONNECTED__";
     private static final int TIMEOUT_SECONDS = 15;
-
     private Socket socket;
     private DataInputStream in;
     private DataOutputStream out;
     private String host;
     private int port;
-    private volatile boolean connected;
-    private volatile Runnable notificationListener;
+    private boolean connected;
+    private Consumer<String> notificationListener;
     private final BlockingQueue<String> responses = new LinkedBlockingQueue<>();
 
     public ServerClient(String host, int port) {
@@ -28,7 +28,7 @@ public class ServerClient {
         this.port = port;
     }
 
-    public void setNotificationListener(Runnable listener) {
+    public void setNotificationListener(Consumer<String> listener) {
         this.notificationListener = listener;
     }
 
@@ -52,9 +52,9 @@ public class ServerClient {
                 String message = new String(data, StandardCharsets.UTF_8);
 
                 if (message.startsWith("NOTIFICATION;")) {
-                    Runnable listener = notificationListener;
+                    Consumer<String> listener = notificationListener;
                     if (listener != null) {
-                        listener.run();
+                        listener.accept(message);
                     }
                 } else {
                     responses.put(message);

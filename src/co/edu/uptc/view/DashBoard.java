@@ -25,7 +25,6 @@ public class DashBoard extends JFrame {
     private PanelSearchBooksUser panelSearchBooksUser;
     private PanelMyLoans panelMyLoans;
     private PanelMyDetails panelMyDetails;
-    private PanelStatistics panelStatistics;
 
     public DashBoard(ClientController controller) {
         this.controller = controller;
@@ -60,7 +59,6 @@ public class DashBoard extends JFrame {
         panelSearchBooksUser = new PanelSearchBooksUser(this);
         panelMyLoans = new PanelMyLoans(this);
         panelMyDetails = new PanelMyDetails(this);
-        panelStatistics = new PanelStatistics(this);
 
         mainPanel.add(panelSelection, "seleccion");
         mainPanel.add(panelLoginUser, "loginUsuario");
@@ -72,7 +70,6 @@ public class DashBoard extends JFrame {
         menuAdmin.addContent("registrarPrestamo", panelRegisterLoan);
         menuAdmin.addContent("registrarDevolucion", panelRegisterRefund);
         menuAdmin.addContent("buscarLibrosAdmin", panelSearchBooksAdmin);
-        menuAdmin.addContent("estadisticas", panelStatistics);
         menuUser.addContent("buscarLibrosUsuario", panelSearchBooksUser);
         menuUser.addContent("misPrestamos", panelMyLoans);
         menuUser.addContent("misDatos", panelMyDetails);
@@ -138,9 +135,6 @@ public class DashBoard extends JFrame {
             case "misDatos":
                 controller.updateUserInfo();
                 break;
-            case "estadisticas":
-                controller.updateStatistics();
-                break;
             default:
                 break;
         }
@@ -178,9 +172,6 @@ public class DashBoard extends JFrame {
         return panelMyDetails;
     }
 
-    public PanelStatistics getPanelStatistics() {
-        return panelStatistics;
-    }
 
     public ClientController getController() {
         return controller;
@@ -200,5 +191,9 @@ public class DashBoard extends JFrame {
 
     public void showLoginError(String message) {
         JOptionPane.showMessageDialog(this, message, "Error de Login", JOptionPane.ERROR_MESSAGE);
+    }
+
+    public void showNotification(String text) {
+        JOptionPane.showMessageDialog(this, text, "Notificación", JOptionPane.INFORMATION_MESSAGE);
     }
 }

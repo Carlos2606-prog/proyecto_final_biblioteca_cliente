@@ -71,7 +71,7 @@ bin/
           PanelSearchBooksUser.class
           PanelSearchBooksUser$1.class
           PanelSelection.class
-          PanelStatistics.class
+          SideMenuPanel.class
   App.class
 lib/
   gson-2.8.2.jar
@@ -101,7 +101,7 @@ src/
           PanelSearchBooksAdmin.java
           PanelSearchBooksUser.java
           PanelSelection.java
-          PanelStatistics.java
+          SideMenuPanel.java
   App.java
 client.jar
 README.md
@@ -110,454 +110,6 @@ repomix-client.xml
 
 <files>
 This section contains the contents of the repository's files.
-
-<file path="src/co/edu/uptc/controller/ClientController.java">
-package co.edu.uptc.controller;
-
-import co.edu.uptc.view.DashBoard;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import java.io.IOException;
-import javax.swing.SwingUtilities;
-
-public class ClientController {
-
-    private static final int PORT = 1234;
-
-    private ServerClient client;
-    private DashBoard dashBoard;
-    private boolean connected;
-    private String lastCriterion = "";
-    private String lastSearch = "";
-
-    public ClientController(String serverIp) {
-        this.client = new ServerClient(serverIp, PORT);
-        client.setNotificationListener(this::onServerNotification);
-        try {
-            client.connect();
-            connected = true;
-            System.out.println("Conectado al servidor exitosamente en " + serverIp);
-        } catch (IOException e) {
-            System.err.println("Error al conectar con el servidor: " + e.getMessage());
-        }
-    }
-
-    public boolean isConnected() {
-        return connected;
-    }
-
-    public void setView(DashBoard dashBoard) {
-        this.dashBoard = dashBoard;
-    }
-
-    // ==========================================
-    // UTILIDADES
-    // ==========================================
-
-    /** El servidor avisa que los datos cambiaron: se recarga la pantalla actual. */
-    private void onServerNotification() {
-        SwingUtilities.invokeLater(() -> {
-            if (dashBoard != null) {
-                dashBoard.refreshCurrentPanel();
-            }
-        });
-    }
-
-    private boolean isOk(String response) {
-        return response != null && response.startsWith("SUCCESS");
-    }
-
-    private String errorOf(String response) {
-        return response != null && response.startsWith("ERROR;") ? response.substring(6) : String.valueOf(response);
-    }
-
-    private String payload(String response) {
-        int i = response.indexOf(';');
-        return i < 0 ? "" : response.substring(i + 1);
-    }
-
-    private JsonArray parseArray(String response) {
-        return new JsonParser().parse(payload(response)).getAsJsonArray();
-    }
-
-    /** true si la respuesta fue exitosa; si no, muestra el error al usuario. */
-    private boolean checkOrShow(String response) {
-        if (isOk(response)) {
-            return true;
-        }
-        dashBoard.showMessage(errorOf(response));
-        return false;
-    }
-
-    private void showError(Exception e) {
-        dashBoard.showMessage("Error: " + e.getMessage());
-    }
-
-    /** El separador del protocolo es ';', asi que no puede ir dentro de los datos. */
-    private String clean(String s) {
-        return s == null ? "" : s.replace(";", ",").trim();
-    }
-
-    private boolean isInt(String s) {
-        try {
-            Integer.parseInt(s.trim());
-            return true;
-        } catch (NumberFormatException e) {
-            return false;
-        }
-    }
-
-    private String str(JsonObject o, String key) {
-        JsonElement e = o.get(key);
-        return (e == null || e.isJsonNull()) ? "" : e.getAsString();
-    }
-
-    private Object[][] toRows(JsonArray array, String... keys) {
-        Object[][] rows = new Object[array.size()][keys.length];
-        for (int i = 0; i < array.size(); i++) {
-            JsonObject o = array.get(i).getAsJsonObject();
-            for (int j = 0; j < keys.length; j++) {
-                rows[i][j] = str(o, keys[j]);
-            }
-        }
-        return rows;
-    }
-
-    /** Los ids de prestamo se muestran como L1, L2... (asi los interpreta PanelRegisterRefund). */
-    private void prefixLoanIds(Object[][] rows) {
-        for (Object[] row : rows) {
-            row[0] = "L" + row[0];
-        }
-    }
-
-    // ==========================================
-    // LOGIN Y SESION
-    // ==========================================
-
-    public void loginAdmin(String user, String password) {
-        try {
-            String response = client.sendRequest("LOGIN_ADMIN;" + clean(user) + ";" + password.replace(";", ","));
-            if (isOk(response)) {
-                dashBoard.showLoginSuccess(false);
-            } else {
-                dashBoard.showLoginError(errorOf(response));
-            }
-        } catch (IOException e) {
-            dashBoard.showLoginError("Error de conexión con el servidor.");
-        }
-    }
-
-    public void loginUser(String userId, String name) {
-        try {
-            String response = client.sendRequest("LOGIN_USER;" + clean(userId) + ";" + clean(name));
-            if (isOk(response)) {
-                dashBoard.showLoginSuccess(true);
-            } else {
-                dashBoard.showLoginError(errorOf(response));
-            }
-        } catch (IOException e) {
-            dashBoard.showLoginError("Error de conexión con el servidor.");
-        }
-    }
-
-    public void logout() {
-        try {
-            client.sendRequest("LOGOUT");
-        } catch (IOException e) {
-            System.err.println("Error al cerrar sesión en el servidor");
-        }
-    }
-
-    // ==========================================
-    // LIBROS
-    // ==========================================
-
-    public void updateBooksTable() {
-        try {
-            String response = client.sendRequest("GET_BOOKS");
-            if (!checkOrShow(response)) {
-                return;
-            }
-            Object[][] data = toRows(parseArray(response), "code", "title", "author", "genre", "year", "totalCopies");
-            dashBoard.getPanelManagementBook().updateTableData(data);
-        } catch (Exception e) {
-            showError(e);
-        }
-    }
-
-    public void addBook(String code, String title, String author, String kind, String year, String copies) {
-        if (!isInt(code) || !isInt(year) || !isInt(copies)) {
-            dashBoard.showMessage("El código, el año y las copias deben ser números enteros.");
-            return;
-        }
-        try {
-            String response = client.sendRequest(String.format("ADD_BOOK;%s;%s;%s;%s;%s;%s",
-                    clean(code), clean(title), clean(author), clean(kind), clean(year), clean(copies)));
-            if (checkOrShow(response)) {
-                dashBoard.showMessage("Libro agregado exitosamente.");
-                updateBooksTable();
-            }
-        } catch (Exception e) {
-            showError(e);
-        }
-    }
-
-    public void editBook(String code, String title, String author, String kind, String year, String copies) {
-        if (!isInt(code) || !isInt(year) || !isInt(copies)) {
-            dashBoard.showMessage("El código, el año y las copias deben ser números enteros.");
-            return;
-        }
-        try {
-            String response = client.sendRequest(String.format("EDIT_BOOK;%s;%s;%s;%s;%s;%s",
-                    clean(code), clean(title), clean(author), clean(kind), clean(year), clean(copies)));
-            if (checkOrShow(response)) {
-                updateBooksTable();
-            }
-        } catch (Exception e) {
-            showError(e);
-        }
-    }
-
-    public void removeBook(String code) {
-        try {
-            String response = client.sendRequest("DELETE_BOOK;" + clean(code));
-            if (checkOrShow(response)) {
-                updateBooksTable();
-            }
-        } catch (Exception e) {
-            showError(e);
-        }
-    }
-
-    public void searchBooks(String criterion, String search, boolean isAdmin) {
-        lastCriterion = criterion == null ? "" : criterion;
-        lastSearch = search == null ? "" : search;
-        try {
-            String response = client.sendRequest("SEARCH_BOOKS;" + clean(lastCriterion) + ";" + clean(lastSearch));
-            if (!checkOrShow(response)) {
-                return;
-            }
-            Object[][] data = toRows(parseArray(response),
-                    "code", "title", "author", "genre", "year", "totalCopies", "availableCopies");
-            if (isAdmin) {
-                dashBoard.getPanelSearchBooksAdmin().updateSearchResults(data);
-            } else {
-                dashBoard.getPanelSearchBooksUser().updateSearchResults(data);
-            }
-        } catch (Exception e) {
-            showError(e);
-        }
-    }
-
-    /** Repite la ultima busqueda (se usa al recibir una notificacion del servidor). */
-    public void refreshSearch(boolean isAdmin) {
-        searchBooks(lastCriterion, lastSearch, isAdmin);
-    }
-
-    // ==========================================
-    // USUARIOS
-    // ==========================================
-
-    public void updateUsersTable() {
-        try {
-            String response = client.sendRequest("GET_USERS");
-            if (!checkOrShow(response)) {
-                return;
-            }
-            Object[][] data = toRows(parseArray(response), "userId", "name", "type", "activeLoans");
-            dashBoard.getPanelManagementUsers().updateTableData(data);
-        } catch (Exception e) {
-            showError(e);
-        }
-    }
-
-    public void addUser(String id, String name, String type) {
-        try {
-            String response = client.sendRequest(String.format("ADD_USER;%s;%s;%s", clean(id), clean(name), clean(type)));
-            if (checkOrShow(response)) {
-                updateUsersTable();
-            }
-        } catch (Exception e) {
-            showError(e);
-        }
-    }
-
-    public void editUser(String id, String name, String type) {
-        try {
-            String response = client.sendRequest(String.format("EDIT_USER;%s;%s;%s", clean(id), clean(name), clean(type)));
-            if (checkOrShow(response)) {
-                updateUsersTable();
-            }
-        } catch (Exception e) {
-            showError(e);
-        }
-    }
-
-    public void removeUser(String id) {
-        try {
-            String response = client.sendRequest("DELETE_USER;" + clean(id));
-            if (checkOrShow(response)) {
-                updateUsersTable();
-            }
-        } catch (Exception e) {
-            showError(e);
-        }
-    }
-
-    // ==========================================
-    // PRESTAMOS
-    // ==========================================
-
-    public void loadBooksForLoan() {
-        try {
-            String usersResponse = client.sendRequest("GET_USERS");
-            String booksResponse = client.sendRequest("GET_BOOKS");
-            if (!checkOrShow(usersResponse) || !checkOrShow(booksResponse)) {
-                return;
-            }
-
-            JsonArray users = parseArray(usersResponse);
-            String[] userItems = new String[users.size() + 1];
-            userItems[0] = "-- Seleccione --";
-            for (int i = 0; i < users.size(); i++) {
-                JsonObject o = users.get(i).getAsJsonObject();
-                userItems[i + 1] = str(o, "userId") + " - " + str(o, "name");
-            }
-
-            // Solo libros con al menos una copia disponible
-            JsonArray books = parseArray(booksResponse);
-            java.util.List<String> bookItems = new java.util.ArrayList<>();
-            bookItems.add("-- Seleccione --");
-            for (int i = 0; i < books.size(); i++) {
-                JsonObject o = books.get(i).getAsJsonObject();
-                if (o.get("availableCopies").getAsInt() > 0) {
-                    bookItems.add(str(o, "code") + " - " + str(o, "title"));
-                }
-            }
-
-            dashBoard.getPanelRegisterLoan().updateUsersList(userItems);
-            dashBoard.getPanelRegisterLoan().updateBooksList(bookItems.toArray(new String[0]));
-            dashBoard.getPanelRegisterLoan().updateCopiesList(new String[] { "-- Seleccione --" });
-        } catch (Exception e) {
-            showError(e);
-        }
-    }
-
-    public void loadAvailableCopies(String bookCode) {
-        try {
-            String response = client.sendRequest("GET_AVAILABLE_COPIES;" + clean(bookCode));
-            if (!checkOrShow(response)) {
-                return;
-            }
-            JsonArray ids = parseArray(response);
-            String[] items = new String[ids.size() + 1];
-            items[0] = "-- Seleccione --";
-            for (int i = 0; i < ids.size(); i++) {
-                items[i + 1] = "Copia " + (i + 1) + " (ID: " + ids.get(i).getAsInt() + ")";
-            }
-            dashBoard.getPanelRegisterLoan().updateCopiesList(items);
-        } catch (Exception e) {
-            showError(e);
-        }
-    }
-
-    public void registerLoan(String userId, String copyId, String date) {
-        try {
-            String response = client.sendRequest(String.format("REGISTER_LOAN;%s;%s;%s",
-                    clean(userId), clean(copyId), clean(date)));
-            if (checkOrShow(response)) {
-                dashBoard.showMessage("Préstamo registrado.");
-                dashBoard.getPanelRegisterLoan().clearForm();
-                loadBooksForLoan(); // refresca disponibilidad
-            }
-        } catch (Exception e) {
-            showError(e);
-        }
-    }
-
-    public void updateLoansTable() {
-        try {
-            String response = client.sendRequest("GET_LOANS");
-            if (!checkOrShow(response)) {
-                return;
-            }
-            Object[][] data = toRows(parseArray(response),
-                    "loanId", "userName", "bookTitle", "copyId", "loanDate", "returnDate", "status");
-            prefixLoanIds(data);
-            dashBoard.getPanelRegisterRefund().updateTableData(data);
-        } catch (Exception e) {
-            showError(e);
-        }
-    }
-
-    public void registerReturn(int loanId) {
-        try {
-            String response = client.sendRequest("REGISTER_RETURN;" + loanId);
-            if (checkOrShow(response)) {
-                dashBoard.showMessage("Devolución registrada.");
-                updateLoansTable();
-            }
-        } catch (Exception e) {
-            showError(e);
-        }
-    }
-
-    public void updateUserLoansTable() {
-        try {
-            String response = client.sendRequest("GET_MY_LOANS");
-            if (!checkOrShow(response)) {
-                return;
-            }
-            Object[][] data = toRows(parseArray(response),
-                    "loanId", "bookTitle", "copyId", "loanDate", "returnDate", "status");
-            prefixLoanIds(data);
-            dashBoard.getPanelMyLoans().updateTableData(data);
-        } catch (Exception e) {
-            showError(e);
-        }
-    }
-
-    // ==========================================
-    // PERFIL Y ESTADISTICAS
-    // ==========================================
-
-    public void updateUserInfo() {
-        try {
-            String response = client.sendRequest("GET_MY_DETAILS");
-            if (!checkOrShow(response)) {
-                return;
-            }
-            JsonObject o = new JsonParser().parse(payload(response)).getAsJsonObject();
-            String info = "ID: " + str(o, "userId")
-                    + "\nNombre: " + str(o, "name")
-                    + "\nTipo: " + str(o, "type")
-                    + "\nPréstamos activos: " + str(o, "activeLoans");
-            dashBoard.getPanelMyDetails().updateUserData(info);
-        } catch (Exception e) {
-            showError(e);
-        }
-    }
-
-    public void updateStatistics() {
-        try {
-            String response = client.sendRequest("GET_STATISTICS");
-            if (!checkOrShow(response)) {
-                return;
-            }
-            JsonArray array = parseArray(response);
-            int[] stats = new int[6];
-            for (int i = 0; i < stats.length; i++) {
-                stats[i] = array.get(i).getAsInt();
-            }
-            dashBoard.getPanelStatistics().updateStatistics(stats);
-        } catch (Exception e) {
-            showError(e);
-        }
-    }
-}
-</file>
 
 <file path="src/co/edu/uptc/controller/ServerClient.java">
 package co.edu.uptc.controller;
@@ -570,19 +122,19 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 public class ServerClient {
 
     private static final String DISCONNECTED = "__DISCONNECTED__";
     private static final int TIMEOUT_SECONDS = 15;
-
     private Socket socket;
     private DataInputStream in;
     private DataOutputStream out;
     private String host;
     private int port;
-    private volatile boolean connected;
-    private volatile Runnable notificationListener;
+    private boolean connected;
+    private Consumer<String> notificationListener;
     private final BlockingQueue<String> responses = new LinkedBlockingQueue<>();
 
     public ServerClient(String host, int port) {
@@ -590,7 +142,7 @@ public class ServerClient {
         this.port = port;
     }
 
-    public void setNotificationListener(Runnable listener) {
+    public void setNotificationListener(Consumer<String> listener) {
         this.notificationListener = listener;
     }
 
@@ -614,9 +166,9 @@ public class ServerClient {
                 String message = new String(data, StandardCharsets.UTF_8);
 
                 if (message.startsWith("NOTIFICATION;")) {
-                    Runnable listener = notificationListener;
+                    Consumer<String> listener = notificationListener;
                     if (listener != null) {
-                        listener.run();
+                        listener.accept(message);
                     }
                 } else {
                     responses.put(message);
@@ -672,361 +224,6 @@ public class ServerClient {
 
     public boolean isConnected() {
         return connected && socket != null && socket.isConnected() && !socket.isClosed();
-    }
-}
-</file>
-
-<file path="src/co/edu/uptc/view/DashBoard.java">
-package co.edu.uptc.view;
-
-import co.edu.uptc.controller.ClientController;
-import javax.swing.JFrame;
-import javax.swing.JPanel;
-import javax.swing.JOptionPane;
-import java.awt.CardLayout;
-
-public class DashBoard extends JFrame {
-
-    private CardLayout cardLayout;
-    private JPanel mainPanel;
-    private ClientController controller;
-    private String currentPanel = "seleccion";
-    private PanelSelection panelSelection;
-    private PanelLoginUser panelLoginUser;
-    private PanelLoginAdmin panelLoginAdmin;
-    private MenuUser menuUser;
-    private MenuAdmin menuAdmin;
-    private PanelManagementUsers panelManagementUsers;
-    private PanelManagementBook panelManagementBook;
-    private PanelRegisterLoan panelRegisterLoan;
-    private PanelRegisterRefund panelRegisterRefund;
-    private PanelSearchBooksAdmin panelSearchBooksAdmin;
-    private PanelSearchBooksUser panelSearchBooksUser;
-    private PanelMyLoans panelMyLoans;
-    private PanelMyDetails panelMyDetails;
-    private PanelStatistics panelStatistics;
-
-    public DashBoard(ClientController controller) {
-        this.controller = controller;
-        controller.setView(this);
-        setTitle("Biblioteca Virtual");
-        setSize(900, 600);
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setLocationRelativeTo(null);
-
-        initComponents();
-        add(mainPanel);
-        showPanel("seleccion");
-    }
-
-    private void initComponents() {
-        cardLayout = new CardLayout();
-        mainPanel = new JPanel(cardLayout);
-        initPaneles();
-    }
-
-    private void initPaneles() {
-        panelSelection = new PanelSelection(this);
-        panelLoginUser = new PanelLoginUser(this);
-        panelLoginAdmin = new PanelLoginAdmin(this);
-        menuUser = new MenuUser(this);
-        menuAdmin = new MenuAdmin(this);
-        panelManagementUsers = new PanelManagementUsers(this);
-        panelManagementBook = new PanelManagementBook(this);
-        panelRegisterLoan = new PanelRegisterLoan(this);
-        panelRegisterRefund = new PanelRegisterRefund(this);
-        panelSearchBooksAdmin = new PanelSearchBooksAdmin(this);
-        panelSearchBooksUser = new PanelSearchBooksUser(this);
-        panelMyLoans = new PanelMyLoans(this);
-        panelMyDetails = new PanelMyDetails(this);
-        panelStatistics = new PanelStatistics(this);
-
-        mainPanel.add(panelSelection, "seleccion");
-        mainPanel.add(panelLoginUser, "loginUsuario");
-        mainPanel.add(panelLoginAdmin, "loginAdmin");
-        mainPanel.add(menuUser, "menuUsuario");
-        mainPanel.add(menuAdmin, "menuAdmin");
-        mainPanel.add(panelManagementUsers, "gestionUsuarios");
-        mainPanel.add(panelManagementBook, "gestionLibros");
-        mainPanel.add(panelRegisterLoan, "registrarPrestamo");
-        mainPanel.add(panelRegisterRefund, "registrarDevolucion");
-        mainPanel.add(panelSearchBooksAdmin, "buscarLibrosAdmin");
-        mainPanel.add(panelSearchBooksUser, "buscarLibrosUsuario");
-        mainPanel.add(panelMyLoans, "misPrestamos");
-        mainPanel.add(panelMyDetails, "misDatos");
-        mainPanel.add(panelStatistics, "estadisticas");
-    }
-
-    public void showPanel(String nombrePanel) {
-        currentPanel = nombrePanel;
-        loadPanelData(nombrePanel, true);
-        cardLayout.show(mainPanel, nombrePanel);
-    }
-
-    /** Lo llama el controlador cuando el servidor avisa que los datos cambiaron. */
-    public void refreshCurrentPanel() {
-        loadPanelData(currentPanel, false);
-    }
-
-    private void loadPanelData(String nombrePanel, boolean firstTime) {
-        switch (nombrePanel) {
-            case "gestionUsuarios":
-                controller.updateUsersTable();
-                break;
-            case "gestionLibros":
-                controller.updateBooksTable();
-                break;
-            case "registrarPrestamo":
-                // Al refrescar no se recarga para no borrar lo que el admin esta seleccionando
-                if (firstTime) {
-                    controller.loadBooksForLoan();
-                }
-                break;
-            case "registrarDevolucion":
-                controller.updateLoansTable();
-                break;
-            case "buscarLibrosAdmin":
-                if (firstTime) {
-                    controller.searchBooks("", "", true);
-                } else {
-                    controller.refreshSearch(true);
-                }
-                break;
-            case "buscarLibrosUsuario":
-                if (firstTime) {
-                    controller.searchBooks("", "", false);
-                } else {
-                    controller.refreshSearch(false);
-                }
-                break;
-            case "misPrestamos":
-                controller.updateUserLoansTable();
-                break;
-            case "misDatos":
-                controller.updateUserInfo();
-                break;
-            case "estadisticas":
-                controller.updateStatistics();
-                break;
-            default:
-                break;
-        }
-    }
-
-    public PanelManagementUsers getPanelManagementUsers() {
-        return panelManagementUsers;
-    }
-
-    public PanelManagementBook getPanelManagementBook() {
-        return panelManagementBook;
-    }
-
-    public PanelRegisterLoan getPanelRegisterLoan() {
-        return panelRegisterLoan;
-    }
-
-    public PanelRegisterRefund getPanelRegisterRefund() {
-        return panelRegisterRefund;
-    }
-
-    public PanelSearchBooksAdmin getPanelSearchBooksAdmin() {
-        return panelSearchBooksAdmin;
-    }
-
-    public PanelSearchBooksUser getPanelSearchBooksUser() {
-        return panelSearchBooksUser;
-    }
-
-    public PanelMyLoans getPanelMyLoans() {
-        return panelMyLoans;
-    }
-
-    public PanelMyDetails getPanelMyDetails() {
-        return panelMyDetails;
-    }
-
-    public PanelStatistics getPanelStatistics() {
-        return panelStatistics;
-    }
-
-    public ClientController getController() {
-        return controller;
-    }
-
-    public void showMessage(String message) {
-        JOptionPane.showMessageDialog(this, message);
-    }
-
-    public void showLoginSuccess(boolean isUser) {
-        if (isUser) {
-            showPanel("menuUsuario");
-        } else {
-            showPanel("menuAdmin");
-        }
-    }
-
-    public void showLoginError(String message) {
-        JOptionPane.showMessageDialog(this, message, "Error de Login", JOptionPane.ERROR_MESSAGE);
-    }
-}
-</file>
-
-<file path="src/co/edu/uptc/view/MenuAdmin.java">
-package co.edu.uptc.view;
-import javax.swing.JPanel;
-import javax.swing.JLabel;
-import javax.swing.BorderFactory;
-import javax.swing.JButton;
-import java.awt.BorderLayout;
-import java.awt.GridLayout;
-import java.awt.Dimension;
-import java.awt.Font;
-import java.awt.Color;
-import java.awt.Cursor;
-
-public class MenuAdmin extends JPanel {
-
-    private DashBoard dashBoard;
-    
-    public MenuAdmin(DashBoard dashBoard) {
-        this.dashBoard = dashBoard;
-        setLayout(new BorderLayout());
-        setBackground(new Color(240, 248, 255));
-        initComponents(dashBoard);
-    }
-
-    private void initComponents(DashBoard dashBoard){
-        JPanel panelTitle = new JPanel();
-        panelTitle.setBackground(new Color(220, 20, 60));
-        panelTitle.setPreferredSize(new Dimension(900, 60));
-        JLabel title = new JLabel("MENÚ ADMINISTRADOR");
-        title.setFont(new Font("Arial", Font.BOLD, 24));
-        title.setForeground(Color.WHITE);
-        panelTitle.add(title);
-        
-        JPanel panelOptions = new JPanel(new GridLayout(7, 1, 10, 10));
-        panelOptions.setBackground(new Color(240, 248, 255));
-        panelOptions.setBorder(BorderFactory.createEmptyBorder(15, 50, 15, 50));
-        
-        JButton btnUsersManagement = createBtn("Gestión de Usuarios");
-        btnUsersManagement.addActionListener(e -> dashBoard.showPanel("gestionUsuarios"));
-        
-        JButton btnBooksManagement = createBtn("Gestión de Libros");
-        btnBooksManagement.addActionListener(e -> dashBoard.showPanel("gestionLibros"));
-        
-        JButton btnRegisterLoan = createBtn("Registrar Préstamo");
-        btnRegisterLoan.addActionListener(e -> dashBoard.showPanel("registrarPrestamo"));
-        
-        JButton btnRegisterRefund = createBtn("Registrar Devolución");
-        btnRegisterRefund.addActionListener(e -> dashBoard.showPanel("registrarDevolucion"));
-        
-        JButton btnSearchBooks = createBtn("Buscar Libros");
-        btnSearchBooks.addActionListener(e -> dashBoard.showPanel("buscarLibrosAdmin"));
-        
-        JButton btnViewStatistics = createBtn("Ver Estadísticas");
-        btnViewStatistics.addActionListener(e -> dashBoard.showPanel("estadisticas"));
-        
-        JButton btnExit = createBtn("Cerrar Sesión");
-        btnExit.setBackground(new Color(139, 0, 0));
-        btnExit.addActionListener(e -> {
-            dashBoard.getController().logout();
-            dashBoard.showPanel("seleccion");
-        });
-        
-        panelOptions.add(btnUsersManagement);
-        panelOptions.add(btnBooksManagement);
-        panelOptions.add(btnRegisterLoan);
-        panelOptions.add(btnRegisterRefund);
-        panelOptions.add(btnSearchBooks);
-        panelOptions.add(btnViewStatistics);
-        panelOptions.add(btnExit);
-        
-        add(panelTitle, BorderLayout.NORTH);
-        add(panelOptions, BorderLayout.CENTER);       
-    }
-    
-    private JButton createBtn(String texto) {
-        JButton btn = new JButton(texto);
-        btn.setFont(new Font("Arial", Font.BOLD, 14));
-        btn.setBackground(new Color(178, 34, 34));
-        btn.setForeground(Color.WHITE);
-        btn.setFocusPainted(false);
-        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        return btn;
-    }
-}
-</file>
-
-<file path="src/co/edu/uptc/view/MenuUser.java">
-package co.edu.uptc.view;
-
-import javax.swing.JPanel;
-import javax.swing.JLabel;
-import javax.swing.BorderFactory;
-import javax.swing.JButton;
-import java.awt.BorderLayout;
-import java.awt.GridLayout;
-import java.awt.Dimension;
-import java.awt.Font;
-import java.awt.Color;
-import java.awt.Cursor;
-
-public class MenuUser extends JPanel {
-    private DashBoard daashBoard;
-
-    public MenuUser(DashBoard dashBoard) {
-        this.daashBoard = dashBoard;
-        setLayout(new BorderLayout());
-        setBackground(new Color(240, 248, 255));
-        initComponents(dashBoard);
-    }
-
-    private void initComponents(DashBoard dashBoard) {
-        JPanel panelTitle = new JPanel();
-        panelTitle.setBackground(new Color(100, 149, 237));
-        panelTitle.setPreferredSize(new Dimension(900, 60));
-        JLabel title = new JLabel("MENÚ USUARIO");
-        title.setFont(new Font("Arial", Font.BOLD, 24));
-        title.setForeground(Color.WHITE);
-        panelTitle.add(title);
-
-        JPanel panelOptions = new JPanel(new GridLayout(4, 1, 10, 10));
-        panelOptions.setBackground(new Color(240, 248, 255));
-        panelOptions.setBorder(BorderFactory.createEmptyBorder(20, 50, 20, 50));
-
-        JButton btnSearchBooks = createBtn("Buscar Libros");
-        btnSearchBooks.addActionListener(e -> daashBoard.showPanel("buscarLibrosUsuario"));
-
-        JButton btnMyLoans = createBtn("Mis Préstamos");
-        btnMyLoans.addActionListener(e -> daashBoard.showPanel("misPrestamos"));
-
-        JButton btnMyDetails = createBtn("Ver Mis Datos");
-        btnMyDetails.addActionListener(e -> daashBoard.showPanel("misDatos"));
-
-        JButton btnExit = createBtn("Cerrar Sesión");
-        btnExit.setBackground(new Color(220, 20, 60));
-        btnExit.addActionListener(e -> {
-            daashBoard.getController().logout();
-            daashBoard.showPanel("seleccion");
-        });
-
-        panelOptions.add(btnSearchBooks);
-        panelOptions.add(btnMyLoans);
-        panelOptions.add(btnMyDetails);
-        panelOptions.add(btnExit);
-
-        add(panelTitle, BorderLayout.NORTH);
-        add(panelOptions, BorderLayout.CENTER);
-    }
-
-    private JButton createBtn(String texto) {
-        JButton btn = new JButton(texto);
-        btn.setFont(new Font("Arial", Font.BOLD, 16));
-        btn.setBackground(new Color(70, 130, 180));
-        btn.setForeground(Color.WHITE);
-        btn.setFocusPainted(false);
-        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        return btn;
     }
 }
 </file>
@@ -1245,6 +442,930 @@ public class PanelLoginUser extends JPanel {
 }
 </file>
 
+<file path="src/co/edu/uptc/view/PanelSelection.java">
+package co.edu.uptc.view;
+
+import javax.swing.JPanel;
+import javax.swing.JLabel;
+import javax.swing.JButton;
+import javax.swing.SwingConstants;
+import java.awt.BorderLayout;
+import java.awt.GridBagLayout;
+import java.awt.GridBagConstraints;
+import java.awt.Dimension;
+import java.awt.Insets;
+import java.awt.Font;
+import java.awt.Color;
+import java.awt.Cursor;
+
+
+public class PanelSelection extends JPanel{
+     private DashBoard ventanaPrincipal;
+    
+    public PanelSelection(DashBoard ventana) {
+        this.ventanaPrincipal = ventana;
+        setLayout(new BorderLayout());
+        setBackground(new Color(240, 248, 255));
+        
+        JPanel panelTitulo = new JPanel();
+        panelTitulo.setBackground(new Color(70, 130, 180));
+        panelTitulo.setPreferredSize(new Dimension(900, 80));
+        JLabel titulo = new JLabel("BIBLIOTECA VIRTUAL");
+        titulo.setFont(new Font("Arial", Font.BOLD, 28));
+        titulo.setForeground(Color.WHITE);
+        panelTitulo.add(titulo);
+        
+        JPanel panelCentral = new JPanel(new GridBagLayout());
+        panelCentral.setBackground(new Color(240, 248, 255));
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(15, 0, 15, 0);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        
+        JLabel lblBienvenida = new JLabel("Seleccione su tipo de acceso:");
+        lblBienvenida.setFont(new Font("Arial", Font.PLAIN, 18));
+        lblBienvenida.setHorizontalAlignment(SwingConstants.CENTER);
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        panelCentral.add(lblBienvenida, gbc);
+        
+        JButton btnUsuario = crearBoton("USUARIO", new Color(100, 149, 237));
+        btnUsuario.addActionListener(e -> ventanaPrincipal.showPanel("loginUsuario"));
+        gbc.gridy = 1;
+        gbc.ipadx = 150;
+        gbc.ipady = 30;
+        panelCentral.add(btnUsuario, gbc);
+        
+        JButton btnAdmin = crearBoton("ADMINISTRADOR", new Color(220, 20, 60));
+        btnAdmin.addActionListener(e -> ventanaPrincipal.showPanel("loginAdmin"));
+        gbc.gridy = 2;
+        panelCentral.add(btnAdmin, gbc);
+        
+        add(panelTitulo, BorderLayout.NORTH);
+        add(panelCentral, BorderLayout.CENTER);
+    }
+    
+    private JButton crearBoton(String texto, Color color) {
+        JButton btn = new JButton(texto);
+        btn.setFont(new Font("Arial", Font.BOLD, 16));
+        btn.setBackground(color);
+        btn.setForeground(Color.WHITE);
+        btn.setFocusPainted(false);
+        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        return btn;
+    }
+}
+</file>
+
+<file path="src/co/edu/uptc/view/SideMenuPanel.java">
+package co.edu.uptc.view;
+
+import javax.swing.BorderFactory;
+import javax.swing.JButton;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.SwingConstants;
+import javax.swing.border.Border;
+import java.awt.BorderLayout;
+import java.awt.CardLayout;
+import java.awt.Color;
+import java.awt.Cursor;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.GridLayout;
+import java.awt.Insets;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+
+
+public class SideMenuPanel extends JPanel {
+
+    public static final String HOME = "inicio";
+
+    private static final Color BACKGROUND = new Color(240, 248, 255);
+    private static final int SIDEBAR_WIDTH = 220;
+
+    protected final DashBoard dashBoard;
+    private final Color btnColor;
+    private final CardLayout contentLayout = new CardLayout();
+    private final JPanel panelContent = new JPanel(contentLayout);
+    private final JPanel panelButtons = new JPanel(new GridLayout(0, 1, 0, 10));
+    private final Map<String, JButton> buttons = new HashMap<>();
+    private final Set<String> contentNames = new HashSet<>();
+    private final Border defaultBorder = new JButton().getBorder();
+    private final Border selectedBorder = BorderFactory.createLineBorder(Color.WHITE, 3);
+
+    public SideMenuPanel(DashBoard dashBoard, String title, Color headerColor, Color btnColor, Color exitColor) {
+        this.dashBoard = dashBoard;
+        this.btnColor = btnColor;
+        setLayout(new BorderLayout());
+        setBackground(BACKGROUND);
+
+        panelContent.setBackground(BACKGROUND);
+        panelButtons.setBackground(BACKGROUND);
+
+        add(buildSidebar(title, headerColor, exitColor), BorderLayout.WEST);
+        add(panelContent, BorderLayout.CENTER);
+        panelContent.add(buildHome(title), HOME);
+    }
+
+    private JPanel buildSidebar(String title, Color headerColor, Color exitColor) {
+        JPanel sidebar = new JPanel(new BorderLayout());
+        sidebar.setBackground(BACKGROUND);
+        sidebar.setPreferredSize(new Dimension(SIDEBAR_WIDTH, 0));
+        sidebar.setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, new Color(200, 215, 230)));
+
+        JPanel panelTitle = new JPanel(new GridBagLayout());
+        panelTitle.setBackground(headerColor);
+        panelTitle.setPreferredSize(new Dimension(SIDEBAR_WIDTH, 60));
+        JLabel lblTitle = new JLabel(title);
+        lblTitle.setFont(new Font("Arial", Font.BOLD, 14));
+        lblTitle.setForeground(Color.WHITE);
+        panelTitle.add(lblTitle);
+
+        JPanel panelOptions = new JPanel(new BorderLayout());
+        panelOptions.setBackground(BACKGROUND);
+        panelOptions.setBorder(BorderFactory.createEmptyBorder(15, 12, 15, 12));
+        panelOptions.add(panelButtons, BorderLayout.NORTH);
+
+        JButton btnExit = createBtn("Cerrar Sesión", exitColor);
+        btnExit.addActionListener(e -> {
+            dashBoard.getController().logout();
+            dashBoard.showPanel("seleccion");
+        });
+        panelOptions.add(btnExit, BorderLayout.SOUTH);
+
+        sidebar.add(panelTitle, BorderLayout.NORTH);
+        sidebar.add(panelOptions, BorderLayout.CENTER);
+        return sidebar;
+    }
+
+    private JPanel buildHome(String title) {
+        JPanel home = new JPanel(new GridBagLayout());
+        home.setBackground(BACKGROUND);
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.gridx = 0;
+        gbc.insets = new Insets(5, 5, 5, 5);
+
+        JLabel lblWelcome = new JLabel("BIBLIOTECA VIRTUAL", SwingConstants.CENTER);
+        lblWelcome.setFont(new Font("Arial", Font.BOLD, 28));
+        lblWelcome.setForeground(btnColor);
+        gbc.gridy = 0;
+        home.add(lblWelcome, gbc);
+
+        JLabel lblHint = new JLabel("Seleccione una opción del menú de la izquierda", SwingConstants.CENTER);
+        lblHint.setFont(new Font("Arial", Font.PLAIN, 16));
+        lblHint.setForeground(Color.DARK_GRAY);
+        gbc.gridy = 1;
+        home.add(lblHint, gbc);
+        return home;
+    }
+
+    private JButton createBtn(String text, Color color) {
+        JButton btn = new JButton(text);
+        btn.setFont(new Font("Arial", Font.BOLD, 14));
+        btn.setBackground(color);
+        btn.setForeground(Color.WHITE);
+        btn.setFocusPainted(false);
+        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        btn.setPreferredSize(new Dimension(180, 42));
+        return btn;
+    }
+
+    protected void addOption(String contentName, String text) {
+        JButton btn = createBtn(text, btnColor);
+        btn.addActionListener(e -> dashBoard.showPanel(contentName));
+        buttons.put(contentName, btn);
+        panelButtons.add(btn);
+    }
+
+    public void addContent(String contentName, JPanel panel) {
+        contentNames.add(contentName);
+        panelContent.add(panel, contentName);
+    }
+
+    public boolean hasContent(String contentName) {
+        return contentNames.contains(contentName);
+    }
+
+    public void showContent(String contentName) {
+        contentLayout.show(panelContent, contentName);
+        for (Map.Entry<String, JButton> entry : buttons.entrySet()) {
+            entry.getValue().setBorder(entry.getKey().equals(contentName) ? selectedBorder : defaultBorder);
+        }
+    }
+}
+</file>
+
+<file path="src/App.java">
+import co.edu.uptc.controller.ClientController;
+import co.edu.uptc.view.DashBoard;
+import javax.swing.JOptionPane;
+
+public class App {
+    public static void main(String[] args) {
+
+        String ip = recoveryIP();
+
+        if (ip == null || ip.trim().isEmpty()) {
+            System.exit(0);
+        }
+
+        ClientController controller = new ClientController(ip);
+
+        DashBoard dashBoard = new DashBoard(controller);
+        dashBoard.setVisible(true);
+    }
+
+    public static String recoveryIP() {
+        return JOptionPane.showInputDialog(
+                null,
+                "Digite la IP del servidor:",
+                "Conexión al Servidor",
+                JOptionPane.QUESTION_MESSAGE);
+    }
+}
+</file>
+
+<file path="README.md">
+## Getting Started
+
+Welcome to the VS Code Java world. Here is a guideline to help you get started to write Java code in Visual Studio Code.
+
+## Folder Structure
+
+The workspace contains two folders by default, where:
+
+- `src`: the folder to maintain sources
+- `lib`: the folder to maintain dependencies
+
+Meanwhile, the compiled output files will be generated in the `bin` folder by default.
+
+> If you want to customize the folder structure, open `.vscode/settings.json` and update the related settings there.
+
+## Dependency Management
+
+The `JAVA PROJECTS` view allows you to manage your dependencies. More details can be found [here](https://github.com/microsoft/vscode-java-dependency#manage-dependencies).
+</file>
+
+<file path="src/co/edu/uptc/controller/ClientController.java">
+package co.edu.uptc.controller;
+
+import co.edu.uptc.view.DashBoard;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import java.io.IOException;
+import javax.swing.SwingUtilities;
+
+public class ClientController {
+
+    private static final int PORT = 1234;
+
+    private ServerClient client;
+    private DashBoard dashBoard;
+    private boolean connected;
+    private String lastCriterion = "";
+    private String lastSearch = "";
+    private static final String MESSAGE_PREFIX = "NOTIFICATION;MESSAGE;";
+
+    public ClientController(String serverIp) {
+        this.client = new ServerClient(serverIp, PORT);
+        client.setNotificationListener(this::onServerNotification);
+        try {
+            client.connect();
+            connected = true;
+            System.out.println("Conectado al servidor exitosamente en " + serverIp);
+        } catch (IOException e) {
+            System.err.println("Error al conectar con el servidor: " + e.getMessage());
+        }
+    }
+
+    public boolean isConnected() {
+        return connected;
+    }
+
+    public void setView(DashBoard dashBoard) {
+        this.dashBoard = dashBoard;
+    }
+
+    private void onServerNotification(String message) {
+        SwingUtilities.invokeLater(() -> {
+            if (dashBoard == null) {
+                return;
+            }
+            if (message.startsWith(MESSAGE_PREFIX)) {
+                dashBoard.showNotification(message.substring(MESSAGE_PREFIX.length()));
+            } else {
+                dashBoard.refreshCurrentPanel();
+            }
+        });
+    }
+
+    private boolean isOk(String response) {
+        return response != null && response.startsWith("SUCCESS");
+    }
+
+    private String errorOf(String response) {
+        return response != null && response.startsWith("ERROR;") ? response.substring(6) : String.valueOf(response);
+    }
+
+    private String payload(String response) {
+        int i = response.indexOf(';');
+        return i < 0 ? "" : response.substring(i + 1);
+    }
+
+    private JsonArray parseArray(String response) {
+        return new JsonParser().parse(payload(response)).getAsJsonArray();
+    }
+
+    private boolean checkOrShow(String response) {
+        if (isOk(response)) {
+            return true;
+        }
+        dashBoard.showMessage(errorOf(response));
+        return false;
+    }
+
+    private void showError(Exception e) {
+        dashBoard.showMessage("Error: " + e.getMessage());
+    }
+
+    private String clean(String s) {
+        return s == null ? "" : s.replace(";", ",").trim();
+    }
+
+    private boolean isInt(String s) {
+        try {
+            Integer.parseInt(s.trim());
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    private String str(JsonObject o, String key) {
+        JsonElement e = o.get(key);
+        return (e == null || e.isJsonNull()) ? "" : e.getAsString();
+    }
+
+    private Object[][] toRows(JsonArray array, String... keys) {
+        Object[][] rows = new Object[array.size()][keys.length];
+        for (int i = 0; i < array.size(); i++) {
+            JsonObject o = array.get(i).getAsJsonObject();
+            for (int j = 0; j < keys.length; j++) {
+                rows[i][j] = str(o, keys[j]);
+            }
+        }
+        return rows;
+    }
+
+    private void prefixLoanIds(Object[][] rows) {
+        for (Object[] row : rows) {
+            row[0] = "L" + row[0];
+        }
+    }
+
+    public void loginAdmin(String user, String password) {
+        try {
+            String response = client.sendRequest("LOGIN_ADMIN;" + clean(user) + ";" + password.replace(";", ","));
+            if (isOk(response)) {
+                dashBoard.showLoginSuccess(false);
+            } else {
+                dashBoard.showLoginError(errorOf(response));
+            }
+        } catch (IOException e) {
+            dashBoard.showLoginError("Error de conexión con el servidor.");
+        }
+    }
+
+    public void loginUser(String userId, String name) {
+        try {
+            String response = client.sendRequest("LOGIN_USER;" + clean(userId) + ";" + clean(name));
+            if (isOk(response)) {
+                dashBoard.showLoginSuccess(true);
+            } else {
+                dashBoard.showLoginError(errorOf(response));
+            }
+        } catch (IOException e) {
+            dashBoard.showLoginError("Error de conexión con el servidor.");
+        }
+    }
+
+    public void logout() {
+        try {
+            client.sendRequest("LOGOUT");
+        } catch (IOException e) {
+            System.err.println("Error al cerrar sesión en el servidor");
+        }
+    }
+
+    public void updateBooksTable() {
+        try {
+            String response = client.sendRequest("GET_BOOKS");
+            if (!checkOrShow(response)) {
+                return;
+            }
+            Object[][] data = toRows(parseArray(response), "code", "title", "author", "genre", "year", "totalCopies");
+            dashBoard.getPanelManagementBook().updateTableData(data);
+        } catch (Exception e) {
+            showError(e);
+        }
+    }
+
+    public void addBook(String code, String title, String author, String kind, String year, String copies) {
+        if (!isInt(code) || !isInt(year) || !isInt(copies)) {
+            dashBoard.showMessage("El código, el año y las copias deben ser números enteros.");
+            return;
+        }
+        try {
+            String response = client.sendRequest(String.format("ADD_BOOK;%s;%s;%s;%s;%s;%s",
+                    clean(code), clean(title), clean(author), clean(kind), clean(year), clean(copies)));
+            if (checkOrShow(response)) {
+                dashBoard.showMessage("Libro agregado exitosamente.");
+                updateBooksTable();
+            }
+        } catch (Exception e) {
+            showError(e);
+        }
+    }
+
+    public void editBook(String code, String title, String author, String kind, String year, String copies) {
+        if (!isInt(code) || !isInt(year) || !isInt(copies)) {
+            dashBoard.showMessage("El código, el año y las copias deben ser números enteros.");
+            return;
+        }
+        try {
+            String response = client.sendRequest(String.format("EDIT_BOOK;%s;%s;%s;%s;%s;%s",
+                    clean(code), clean(title), clean(author), clean(kind), clean(year), clean(copies)));
+            if (checkOrShow(response)) {
+                updateBooksTable();
+            }
+        } catch (Exception e) {
+            showError(e);
+        }
+    }
+
+    public void removeBook(String code) {
+        try {
+            String response = client.sendRequest("DELETE_BOOK;" + clean(code));
+            if (checkOrShow(response)) {
+                updateBooksTable();
+            }
+        } catch (Exception e) {
+            showError(e);
+        }
+    }
+
+    public void searchBooks(String criterion, String search, boolean isAdmin) {
+        lastCriterion = criterion == null ? "" : criterion;
+        lastSearch = search == null ? "" : search;
+        try {
+            String response = client.sendRequest("SEARCH_BOOKS;" + clean(lastCriterion) + ";" + clean(lastSearch));
+            if (!checkOrShow(response)) {
+                return;
+            }
+            Object[][] data = toRows(parseArray(response),
+                    "code", "title", "author", "genre", "year", "totalCopies", "availableCopies");
+            if (isAdmin) {
+                dashBoard.getPanelSearchBooksAdmin().updateSearchResults(data);
+            } else {
+                dashBoard.getPanelSearchBooksUser().updateSearchResults(data);
+            }
+        } catch (Exception e) {
+            showError(e);
+        }
+    }
+
+    public void refreshSearch(boolean isAdmin) {
+        searchBooks(lastCriterion, lastSearch, isAdmin);
+    }
+
+    public void updateUsersTable() {
+        try {
+            String response = client.sendRequest("GET_USERS");
+            if (!checkOrShow(response)) {
+                return;
+            }
+            Object[][] data = toRows(parseArray(response), "userId", "name", "type", "activeLoans");
+            dashBoard.getPanelManagementUsers().updateTableData(data);
+        } catch (Exception e) {
+            showError(e);
+        }
+    }
+
+    public void addUser(String id, String name, String type) {
+        try {
+            String response = client
+                    .sendRequest(String.format("ADD_USER;%s;%s;%s", clean(id), clean(name), clean(type)));
+            if (checkOrShow(response)) {
+                updateUsersTable();
+            }
+        } catch (Exception e) {
+            showError(e);
+        }
+    }
+
+    public void editUser(String id, String name, String type) {
+        try {
+            String response = client
+                    .sendRequest(String.format("EDIT_USER;%s;%s;%s", clean(id), clean(name), clean(type)));
+            if (checkOrShow(response)) {
+                updateUsersTable();
+            }
+        } catch (Exception e) {
+            showError(e);
+        }
+    }
+
+    public void removeUser(String id) {
+        try {
+            String response = client.sendRequest("DELETE_USER;" + clean(id));
+            if (checkOrShow(response)) {
+                updateUsersTable();
+            }
+        } catch (Exception e) {
+            showError(e);
+        }
+    }
+
+    public void loadBooksForLoan() {
+        try {
+            String usersResponse = client.sendRequest("GET_USERS");
+            String booksResponse = client.sendRequest("GET_BOOKS");
+            if (!checkOrShow(usersResponse) || !checkOrShow(booksResponse)) {
+                return;
+            }
+
+            JsonArray users = parseArray(usersResponse);
+            String[] userItems = new String[users.size() + 1];
+            userItems[0] = "-- Seleccione --";
+            for (int i = 0; i < users.size(); i++) {
+                JsonObject o = users.get(i).getAsJsonObject();
+                userItems[i + 1] = str(o, "userId") + " - " + str(o, "name");
+            }
+
+            JsonArray books = parseArray(booksResponse);
+            java.util.List<String> bookItems = new java.util.ArrayList<>();
+            bookItems.add("-- Seleccione --");
+            for (int i = 0; i < books.size(); i++) {
+                JsonObject o = books.get(i).getAsJsonObject();
+                if (o.get("availableCopies").getAsInt() > 0) {
+                    bookItems.add(str(o, "code") + " - " + str(o, "title"));
+                }
+            }
+
+            dashBoard.getPanelRegisterLoan().updateUsersList(userItems);
+            dashBoard.getPanelRegisterLoan().updateBooksList(bookItems.toArray(new String[0]));
+            dashBoard.getPanelRegisterLoan().updateCopiesList(new String[] { "-- Seleccione --" });
+        } catch (Exception e) {
+            showError(e);
+        }
+    }
+
+    public void loadAvailableCopies(String bookCode) {
+        try {
+            String response = client.sendRequest("GET_AVAILABLE_COPIES;" + clean(bookCode));
+            if (!checkOrShow(response)) {
+                return;
+            }
+            JsonArray ids = parseArray(response);
+            String[] items = new String[ids.size() + 1];
+            items[0] = "-- Seleccione --";
+            for (int i = 0; i < ids.size(); i++) {
+                items[i + 1] = "Copia " + (i + 1) + " (ID: " + ids.get(i).getAsInt() + ")";
+            }
+            dashBoard.getPanelRegisterLoan().updateCopiesList(items);
+        } catch (Exception e) {
+            showError(e);
+        }
+    }
+
+    public void registerLoan(String userId, String copyId, String date) {
+        try {
+            String response = client.sendRequest(String.format("REGISTER_LOAN;%s;%s;%s",
+                    clean(userId), clean(copyId), clean(date)));
+            if (checkOrShow(response)) {
+                dashBoard.showMessage("Préstamo registrado.");
+                dashBoard.getPanelRegisterLoan().clearForm();
+                loadBooksForLoan(); // refresca disponibilidad
+            }
+        } catch (Exception e) {
+            showError(e);
+        }
+    }
+
+    public void updateLoansTable() {
+        try {
+            String response = client.sendRequest("GET_LOANS");
+            if (!checkOrShow(response)) {
+                return;
+            }
+            Object[][] data = toRows(parseArray(response),
+                    "loanId", "userName", "bookTitle", "copyId", "loanDate", "returnDate", "status");
+            prefixLoanIds(data);
+            dashBoard.getPanelRegisterRefund().updateTableData(data);
+        } catch (Exception e) {
+            showError(e);
+        }
+    }
+
+    public void registerReturn(int loanId) {
+        try {
+            String response = client.sendRequest("REGISTER_RETURN;" + loanId);
+            if (checkOrShow(response)) {
+                dashBoard.showMessage("Devolución registrada.");
+                updateLoansTable();
+            }
+        } catch (Exception e) {
+            showError(e);
+        }
+    }
+
+    public void updateUserLoansTable() {
+        try {
+            String response = client.sendRequest("GET_MY_LOANS");
+            if (!checkOrShow(response)) {
+                return;
+            }
+            Object[][] data = toRows(parseArray(response),
+                    "loanId", "bookTitle", "copyId", "loanDate", "returnDate", "status");
+            prefixLoanIds(data);
+            dashBoard.getPanelMyLoans().updateTableData(data);
+        } catch (Exception e) {
+            showError(e);
+        }
+    }
+
+  
+    public void updateUserInfo() {
+        try {
+            String response = client.sendRequest("GET_MY_DETAILS");
+            if (!checkOrShow(response)) {
+                return;
+            }
+            JsonObject o = new JsonParser().parse(payload(response)).getAsJsonObject();
+            String info = "ID: " + str(o, "userId")
+                    + "\nNombre: " + str(o, "name")
+                    + "\nTipo: " + str(o, "type")
+                    + "\nPréstamos activos: " + str(o, "activeLoans");
+            dashBoard.getPanelMyDetails().updateUserData(info);
+        } catch (Exception e) {
+            showError(e);
+        }
+    }
+
+}
+</file>
+
+<file path="src/co/edu/uptc/view/DashBoard.java">
+package co.edu.uptc.view;
+
+import co.edu.uptc.controller.ClientController;
+import javax.swing.JFrame;
+import javax.swing.JPanel;
+import javax.swing.JOptionPane;
+import java.awt.CardLayout;
+
+public class DashBoard extends JFrame {
+
+    private CardLayout cardLayout;
+    private JPanel mainPanel;
+    private ClientController controller;
+    private String currentPanel = "seleccion";
+    private PanelSelection panelSelection;
+    private PanelLoginUser panelLoginUser;
+    private PanelLoginAdmin panelLoginAdmin;
+    private MenuUser menuUser;
+    private MenuAdmin menuAdmin;
+    private PanelManagementUsers panelManagementUsers;
+    private PanelManagementBook panelManagementBook;
+    private PanelRegisterLoan panelRegisterLoan;
+    private PanelRegisterRefund panelRegisterRefund;
+    private PanelSearchBooksAdmin panelSearchBooksAdmin;
+    private PanelSearchBooksUser panelSearchBooksUser;
+    private PanelMyLoans panelMyLoans;
+    private PanelMyDetails panelMyDetails;
+
+    public DashBoard(ClientController controller) {
+        this.controller = controller;
+        controller.setView(this);
+        setTitle("Biblioteca Virtual");
+        setSize(1150, 650);
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setLocationRelativeTo(null);
+
+        initComponents();
+        add(mainPanel);
+        showPanel("seleccion");
+    }
+
+    private void initComponents() {
+        cardLayout = new CardLayout();
+        mainPanel = new JPanel(cardLayout);
+        initPaneles();
+    }
+
+    private void initPaneles() {
+        panelSelection = new PanelSelection(this);
+        panelLoginUser = new PanelLoginUser(this);
+        panelLoginAdmin = new PanelLoginAdmin(this);
+        menuUser = new MenuUser(this);
+        menuAdmin = new MenuAdmin(this);
+        panelManagementUsers = new PanelManagementUsers(this);
+        panelManagementBook = new PanelManagementBook(this);
+        panelRegisterLoan = new PanelRegisterLoan(this);
+        panelRegisterRefund = new PanelRegisterRefund(this);
+        panelSearchBooksAdmin = new PanelSearchBooksAdmin(this);
+        panelSearchBooksUser = new PanelSearchBooksUser(this);
+        panelMyLoans = new PanelMyLoans(this);
+        panelMyDetails = new PanelMyDetails(this);
+
+        mainPanel.add(panelSelection, "seleccion");
+        mainPanel.add(panelLoginUser, "loginUsuario");
+        mainPanel.add(panelLoginAdmin, "loginAdmin");
+        mainPanel.add(menuUser, "menuUsuario");
+        mainPanel.add(menuAdmin, "menuAdmin");
+        menuAdmin.addContent("gestionUsuarios", panelManagementUsers);
+        menuAdmin.addContent("gestionLibros", panelManagementBook);
+        menuAdmin.addContent("registrarPrestamo", panelRegisterLoan);
+        menuAdmin.addContent("registrarDevolucion", panelRegisterRefund);
+        menuAdmin.addContent("buscarLibrosAdmin", panelSearchBooksAdmin);
+        menuUser.addContent("buscarLibrosUsuario", panelSearchBooksUser);
+        menuUser.addContent("misPrestamos", panelMyLoans);
+        menuUser.addContent("misDatos", panelMyDetails);
+    }
+
+    public void showPanel(String nombrePanel) {
+        currentPanel = nombrePanel;
+        loadPanelData(nombrePanel, true);
+
+        if ("menuAdmin".equals(nombrePanel)) {
+            menuAdmin.showContent(SideMenuPanel.HOME);
+        } else if ("menuUsuario".equals(nombrePanel)) {
+            menuUser.showContent(SideMenuPanel.HOME);
+        } else if (menuAdmin.hasContent(nombrePanel)) {
+            menuAdmin.showContent(nombrePanel);
+            cardLayout.show(mainPanel, "menuAdmin");
+            return;
+        } else if (menuUser.hasContent(nombrePanel)) {
+            menuUser.showContent(nombrePanel);
+            cardLayout.show(mainPanel, "menuUsuario");
+            return;
+        }
+        cardLayout.show(mainPanel, nombrePanel);
+    }
+
+    public void refreshCurrentPanel() {
+        loadPanelData(currentPanel, false);
+    }
+
+    private void loadPanelData(String panelName, boolean firstTime) {
+        switch (panelName) {
+            case "gestionUsuarios":
+                controller.updateUsersTable();
+                break;
+            case "gestionLibros":
+                controller.updateBooksTable();
+                break;
+            case "registrarPrestamo":
+                if (firstTime) {
+                    controller.loadBooksForLoan();
+                }
+                break;
+            case "registrarDevolucion":
+                controller.updateLoansTable();
+                break;
+            case "buscarLibrosAdmin":
+                if (firstTime) {
+                    controller.searchBooks("", "", true);
+                } else {
+                    controller.refreshSearch(true);
+                }
+                break;
+            case "buscarLibrosUsuario":
+                if (firstTime) {
+                    controller.searchBooks("", "", false);
+                } else {
+                    controller.refreshSearch(false);
+                }
+                break;
+            case "misPrestamos":
+                controller.updateUserLoansTable();
+                break;
+            case "misDatos":
+                controller.updateUserInfo();
+                break;
+            default:
+                break;
+        }
+    }
+
+    public PanelManagementUsers getPanelManagementUsers() {
+        return panelManagementUsers;
+    }
+
+    public PanelManagementBook getPanelManagementBook() {
+        return panelManagementBook;
+    }
+
+    public PanelRegisterLoan getPanelRegisterLoan() {
+        return panelRegisterLoan;
+    }
+
+    public PanelRegisterRefund getPanelRegisterRefund() {
+        return panelRegisterRefund;
+    }
+
+    public PanelSearchBooksAdmin getPanelSearchBooksAdmin() {
+        return panelSearchBooksAdmin;
+    }
+
+    public PanelSearchBooksUser getPanelSearchBooksUser() {
+        return panelSearchBooksUser;
+    }
+
+    public PanelMyLoans getPanelMyLoans() {
+        return panelMyLoans;
+    }
+
+    public PanelMyDetails getPanelMyDetails() {
+        return panelMyDetails;
+    }
+
+
+    public ClientController getController() {
+        return controller;
+    }
+
+    public void showMessage(String message) {
+        JOptionPane.showMessageDialog(this, message);
+    }
+
+    public void showLoginSuccess(boolean isUser) {
+        if (isUser) {
+            showPanel("menuUsuario");
+        } else {
+            showPanel("menuAdmin");
+        }
+    }
+
+    public void showLoginError(String message) {
+        JOptionPane.showMessageDialog(this, message, "Error de Login", JOptionPane.ERROR_MESSAGE);
+    }
+
+    public void showNotification(String text) {
+        JOptionPane.showMessageDialog(this, text, "Notificación", JOptionPane.INFORMATION_MESSAGE);
+    }
+}
+</file>
+
+<file path="src/co/edu/uptc/view/MenuAdmin.java">
+package co.edu.uptc.view;
+
+import java.awt.Color;
+
+public class MenuAdmin extends SideMenuPanel {
+
+    public MenuAdmin(DashBoard dashBoard) {
+        super(dashBoard, "MENÚ ADMINISTRADOR",
+                new Color(220, 20, 60),
+                new Color(178, 34, 34),
+                new Color(139, 0, 0));
+
+        addOption("gestionUsuarios", "Gestión de Usuarios");
+        addOption("gestionLibros", "Gestión de Libros");
+        addOption("registrarPrestamo", "Registrar Préstamo");
+        addOption("registrarDevolucion", "Registrar Devolución");
+        addOption("buscarLibrosAdmin", "Buscar Libros");
+    }
+}
+</file>
+
+<file path="src/co/edu/uptc/view/MenuUser.java">
+package co.edu.uptc.view;
+
+import java.awt.Color;
+
+public class MenuUser extends SideMenuPanel {
+
+    public MenuUser(DashBoard dashBoard) {
+        super(dashBoard, "MENÚ USUARIO",
+                new Color(100, 149, 237),  // encabezado
+                new Color(70, 130, 180),   // botones
+                new Color(220, 20, 60));   // cerrar sesión
+
+        addOption("buscarLibrosUsuario", "Buscar Libros");
+        addOption("misPrestamos", "Mis Préstamos");
+        addOption("misDatos", "Ver Mis Datos");
+    }
+}
+</file>
+
 <file path="src/co/edu/uptc/view/PanelManagementBook.java">
 package co.edu.uptc.view;
 
@@ -1357,21 +1478,9 @@ public class PanelManagementBook extends JPanel {
 
         JScrollPane scrollPane = new JScrollPane(tblBooks);
 
-        JPanel panelInferior = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 15));
-        panelInferior.setBackground(new Color(240, 248, 255));
-        JButton btnVolver = new JButton("Volver al Menú");
-        btnVolver.setFont(new Font("Arial", Font.BOLD, 14));
-        btnVolver.setBackground(new Color(128, 128, 128));
-        btnVolver.setForeground(Color.WHITE);
-        btnVolver.setFocusPainted(false);
-        btnVolver.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btnVolver.addActionListener(e -> dashBoard.showPanel("menuAdmin"));
-        panelInferior.add(btnVolver);
-
         add(panelTitle, BorderLayout.NORTH);
         add(panelForm, BorderLayout.PAGE_START);
         add(scrollPane, BorderLayout.CENTER);
-        add(panelInferior, BorderLayout.SOUTH);
     }
 
     private void addBook() {
@@ -1393,15 +1502,13 @@ public class PanelManagementBook extends JPanel {
         int fila = tblBooks.getSelectedRow();
         if (fila >= 0) {
             if (!txtCode.getText().trim().isEmpty() && !txtTitle.getText().trim().isEmpty()) {
-                // Llamar al nuevo método que maneja copias
                 dashBoard.getController().editBook(
                         txtCode.getText().trim(),
                         txtTitle.getText().trim(),
                         txtAuthor.getText().trim(),
                         txtKind.getText().trim(),
                         txtYear.getText().trim(),
-                        txtCopies.getText().trim() // Ahora se envía el número de copias
-                );
+                        txtCopies.getText().trim());
                 cleanFields();
             } else {
                 dashBoard.showMessage("Complete al menos el código y el título del libro");
@@ -1540,20 +1647,10 @@ public class PanelManagementUsers extends JPanel {
         });
         JScrollPane scrollPane = new JScrollPane(tblUsers);
 
-        JPanel panelInferior = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 15));
-        panelInferior.setBackground(new Color(240, 248, 255));
-        JButton btnGoBack = new JButton("Volver al Menú");
-        btnGoBack.setFont(new Font("Arial", Font.BOLD, 14));
-        btnGoBack.setBackground(new Color(128, 128, 128));
-        btnGoBack.setForeground(Color.WHITE);
-        btnGoBack.setFocusPainted(false);
-        btnGoBack.addActionListener(e -> dashBoard.showPanel("menuAdmin"));
-        panelInferior.add(btnGoBack);
 
         add(panelTitle, BorderLayout.NORTH);
         add(panelForm, BorderLayout.PAGE_START);
         add(scrollPane, BorderLayout.CENTER);
-        add(panelInferior, BorderLayout.SOUTH);
     }
 
     private void addUser() {
@@ -1637,19 +1734,9 @@ public class PanelMyDetails extends JPanel {
         txtDetailsArea.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
         JScrollPane scrollPane = new JScrollPane(txtDetailsArea);
 
-        JPanel panelInferior = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 15));
-        panelInferior.setBackground(new Color(240, 248, 255));
-        JButton btnGoBack = new JButton("Volver al Menú");
-        btnGoBack.setFont(new Font("Arial", Font.BOLD, 14));
-        btnGoBack.setBackground(new Color(128, 128, 128));
-        btnGoBack.setForeground(Color.WHITE);
-        btnGoBack.setFocusPainted(false);
-        btnGoBack.addActionListener(e -> dashBoard.showPanel("menuUsuario"));
-        panelInferior.add(btnGoBack);
 
         add(panelTitle, BorderLayout.NORTH);
         add(scrollPane, BorderLayout.CENTER);
-        add(panelInferior, BorderLayout.SOUTH);
     }
 
     public void updateUserData(String info) {
@@ -1699,19 +1786,9 @@ public class PanelMyLoans extends JPanel {
         tblLoans.setRowHeight(25);
         JScrollPane scrollPane = new JScrollPane(tblLoans);
 
-        JPanel panelInferior = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 15));
-        panelInferior.setBackground(new Color(240, 248, 255));
-        JButton btnGoBack = new JButton("Volver al Menú");
-        btnGoBack.setFont(new Font("Arial", Font.BOLD, 14));
-        btnGoBack.setBackground(new Color(128, 128, 128));
-        btnGoBack.setForeground(Color.WHITE);
-        btnGoBack.setFocusPainted(false);
-        btnGoBack.addActionListener(e -> dashBoard.showPanel("menuUsuario"));
-        panelInferior.add(btnGoBack);
 
         add(panelTitle, BorderLayout.NORTH);
         add(scrollPane, BorderLayout.CENTER);
-        add(panelInferior, BorderLayout.SOUTH);
     }
 
     public void updateTableData(Object[][] data) {
@@ -1839,20 +1916,10 @@ public class PanelRegisterLoan extends JPanel {
         txtAreaInfo.setBorder(BorderFactory.createTitledBorder("Información del Préstamo"));
         JScrollPane scrollInfo = new JScrollPane(txtAreaInfo);
 
-        JPanel panelInferior = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 15));
-        panelInferior.setBackground(new Color(240, 248, 255));
-        JButton btnGoBack = new JButton("Volver al Menú");
-        btnGoBack.setFont(new Font("Arial", Font.BOLD, 14));
-        btnGoBack.setBackground(new Color(128, 128, 128));
-        btnGoBack.setForeground(Color.WHITE);
-        btnGoBack.setFocusPainted(false);
-        btnGoBack.addActionListener(e -> dashBoard.showPanel("menuAdmin"));
-        panelInferior.add(btnGoBack);
 
         add(panelTitle, BorderLayout.NORTH);
         add(panelForm, BorderLayout.WEST);
         add(scrollInfo, BorderLayout.CENTER);
-        add(panelInferior, BorderLayout.SOUTH);
     }
 
     private void loadAvailableCopies() {
@@ -2037,21 +2104,10 @@ public class PanelRegisterRefund extends JPanel {
 
         JScrollPane scrollPane = new JScrollPane(tblLoans);
 
-        JPanel panelInferior = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 15));
-        panelInferior.setBackground(new Color(240, 248, 255));
-        JButton btnGoBack = new JButton("Volver al Menú");
-        btnGoBack.setFont(new Font("Arial", Font.BOLD, 14));
-        btnGoBack.setBackground(new Color(128, 128, 128));
-        btnGoBack.setForeground(Color.WHITE);
-        btnGoBack.setFocusPainted(false);
-        btnGoBack.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btnGoBack.addActionListener(e -> dashBoard.showPanel("menuAdmin"));
-        panelInferior.add(btnGoBack);
 
         add(panelTitle, BorderLayout.NORTH);
         add(panelSearch, BorderLayout.PAGE_START);
         add(scrollPane, BorderLayout.CENTER);
-        add(panelInferior, BorderLayout.SOUTH);
     }
 
     private void searchLoan() {
@@ -2186,20 +2242,10 @@ public class PanelSearchBooksAdmin extends JPanel {
         tblResults.setRowHeight(25);
         JScrollPane scrollPane = new JScrollPane(tblResults);
 
-        JPanel panelInferior = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 15));
-        panelInferior.setBackground(new Color(240, 248, 255));
-        JButton btnGoBack = new JButton("Volver al Menú");
-        btnGoBack.setFont(new Font("Arial", Font.BOLD, 14));
-        btnGoBack.setBackground(new Color(128, 128, 128));
-        btnGoBack.setForeground(Color.WHITE);
-        btnGoBack.setFocusPainted(false);
-        btnGoBack.addActionListener(e -> dashBoard.showPanel("menuAdmin"));
-        panelInferior.add(btnGoBack);
 
         add(paneltitle, BorderLayout.NORTH);
         add(panelSearch, BorderLayout.PAGE_START);
         add(scrollPane, BorderLayout.CENTER);
-        add(panelInferior, BorderLayout.SOUTH);
     }
 
     private void performSearch() {
@@ -2282,21 +2328,10 @@ public class PanelSearchBooksUser extends JPanel {
         tblResults.setRowHeight(25);
         JScrollPane scrollPane = new JScrollPane(tblResults);
 
-        JPanel panelInferior = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 15));
-        panelInferior.setBackground(new Color(240, 248, 255));
-        JButton btnGoBack = new JButton("Volver al Menú");
-        btnGoBack.setFont(new Font("Arial", Font.BOLD, 14));
-        btnGoBack.setBackground(new Color(128, 128, 128));
-        btnGoBack.setForeground(Color.WHITE);
-        btnGoBack.setFocusPainted(false);
-        btnGoBack.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btnGoBack.addActionListener(e -> dashBoard.showPanel("menuUsuario"));
-        panelInferior.add(btnGoBack);
 
         add(panelTitle, BorderLayout.NORTH);
         add(panelSearch, BorderLayout.PAGE_START);
         add(scrollPane, BorderLayout.CENTER);
-        add(panelInferior, BorderLayout.SOUTH);
     }
 
     private void performSearch() {
@@ -2306,7 +2341,6 @@ public class PanelSearchBooksUser extends JPanel {
                 false);
     }
 
-    // Método llamado por el Presenter
     public void updateSearchResults(Object[][] data) {
         model.setRowCount(0);
         for (Object[] row : data) {
@@ -2314,226 +2348,6 @@ public class PanelSearchBooksUser extends JPanel {
         }
     }
 }
-</file>
-
-<file path="src/co/edu/uptc/view/PanelSelection.java">
-package co.edu.uptc.view;
-
-import javax.swing.JPanel;
-import javax.swing.JLabel;
-import javax.swing.JButton;
-import javax.swing.SwingConstants;
-import java.awt.BorderLayout;
-import java.awt.GridBagLayout;
-import java.awt.GridBagConstraints;
-import java.awt.Dimension;
-import java.awt.Insets;
-import java.awt.Font;
-import java.awt.Color;
-import java.awt.Cursor;
-
-
-public class PanelSelection extends JPanel{
-     private DashBoard ventanaPrincipal;
-    
-    public PanelSelection(DashBoard ventana) {
-        this.ventanaPrincipal = ventana;
-        setLayout(new BorderLayout());
-        setBackground(new Color(240, 248, 255));
-        
-        JPanel panelTitulo = new JPanel();
-        panelTitulo.setBackground(new Color(70, 130, 180));
-        panelTitulo.setPreferredSize(new Dimension(900, 80));
-        JLabel titulo = new JLabel("BIBLIOTECA VIRTUAL");
-        titulo.setFont(new Font("Arial", Font.BOLD, 28));
-        titulo.setForeground(Color.WHITE);
-        panelTitulo.add(titulo);
-        
-        JPanel panelCentral = new JPanel(new GridBagLayout());
-        panelCentral.setBackground(new Color(240, 248, 255));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(15, 0, 15, 0);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        
-        JLabel lblBienvenida = new JLabel("Seleccione su tipo de acceso:");
-        lblBienvenida.setFont(new Font("Arial", Font.PLAIN, 18));
-        lblBienvenida.setHorizontalAlignment(SwingConstants.CENTER);
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        panelCentral.add(lblBienvenida, gbc);
-        
-        JButton btnUsuario = crearBoton("USUARIO", new Color(100, 149, 237));
-        btnUsuario.addActionListener(e -> ventanaPrincipal.showPanel("loginUsuario"));
-        gbc.gridy = 1;
-        gbc.ipadx = 150;
-        gbc.ipady = 30;
-        panelCentral.add(btnUsuario, gbc);
-        
-        JButton btnAdmin = crearBoton("ADMINISTRADOR", new Color(220, 20, 60));
-        btnAdmin.addActionListener(e -> ventanaPrincipal.showPanel("loginAdmin"));
-        gbc.gridy = 2;
-        panelCentral.add(btnAdmin, gbc);
-        
-        add(panelTitulo, BorderLayout.NORTH);
-        add(panelCentral, BorderLayout.CENTER);
-    }
-    
-    private JButton crearBoton(String texto, Color color) {
-        JButton btn = new JButton(texto);
-        btn.setFont(new Font("Arial", Font.BOLD, 16));
-        btn.setBackground(color);
-        btn.setForeground(Color.WHITE);
-        btn.setFocusPainted(false);
-        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        return btn;
-    }
-}
-</file>
-
-<file path="src/co/edu/uptc/view/PanelStatistics.java">
-package co.edu.uptc.view;
-
-import javax.swing.*;
-import java.awt.*;
-
-public class PanelStatistics extends JPanel {
-    private DashBoard dashBoard;
-    private JLabel lblUsers, lblBooks, lblActiveLoans, lblLateLoans, lblAvailable, lblCopies;
-
-    public PanelStatistics(DashBoard dashBoard) {
-        this.dashBoard = dashBoard;
-        setLayout(new BorderLayout());
-        setBackground(new Color(240, 248, 255));
-        initComponents(dashBoard);
-    }
-
-    private void initComponents(DashBoard dashBoard) {
-        JPanel panelTitle = new JPanel();
-        panelTitle.setBackground(new Color(220, 20, 60));
-        panelTitle.setPreferredSize(new Dimension(900, 60));
-        JLabel title = new JLabel("ESTADÍSTICAS");
-        title.setFont(new Font("Arial", Font.BOLD, 22));
-        title.setForeground(Color.WHITE);
-        panelTitle.add(title);
-
-        JPanel panelCentral = new JPanel(new GridLayout(3, 2, 20, 20));
-        panelCentral.setBackground(new Color(240, 248, 255));
-        panelCentral.setBorder(BorderFactory.createEmptyBorder(30, 50, 30, 50));
-
-        lblUsers = new JLabel("0");
-        panelCentral.add(createPanelStatistics("Total de Usuarios", lblUsers, new Color(100, 149, 237)));
-
-        lblBooks = new JLabel("0");
-        panelCentral.add(createPanelStatistics("Total de Libros", lblBooks, new Color(34, 139, 34)));
-
-        lblActiveLoans = new JLabel("0");
-        panelCentral.add(createPanelStatistics("Préstamos Activos", lblActiveLoans, new Color(255, 165, 0)));
-
-        lblLateLoans = new JLabel("0");
-        panelCentral.add(createPanelStatistics("Préstamos Atrasados", lblLateLoans, new Color(220, 20, 60)));
-
-        lblAvailable = new JLabel("0");
-        panelCentral.add(createPanelStatistics("Libros Disponibles", lblAvailable, new Color(70, 130, 180)));
-
-        lblCopies = new JLabel("0");
-        panelCentral.add(createPanelStatistics("Total Copias", lblCopies, new Color(138, 43, 226)));
-
-        JPanel panelInferior = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 15));
-        panelInferior.setBackground(new Color(240, 248, 255));
-        JButton btnGoBack = new JButton("Volver al Menú");
-        btnGoBack.setFont(new Font("Arial", Font.BOLD, 14));
-        btnGoBack.setBackground(new Color(128, 128, 128));
-        btnGoBack.setForeground(Color.WHITE);
-        btnGoBack.setFocusPainted(false);
-        btnGoBack.addActionListener(e -> dashBoard.showPanel("menuAdmin"));
-        panelInferior.add(btnGoBack);
-
-        add(panelTitle, BorderLayout.NORTH);
-        add(panelCentral, BorderLayout.CENTER);
-        add(panelInferior, BorderLayout.SOUTH);
-    }
-
-    private JPanel createPanelStatistics(String name, JLabel lblValue, Color color) {
-        JPanel panel = new JPanel(new BorderLayout());
-        panel.setBackground(color);
-        panel.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY, 2));
-
-        JLabel lblName = new JLabel(name, SwingConstants.CENTER);
-        lblName.setFont(new Font("Arial", Font.BOLD, 16));
-        lblName.setForeground(Color.WHITE);
-        lblName.setBorder(BorderFactory.createEmptyBorder(10, 5, 5, 5));
-
-        lblValue.setHorizontalAlignment(SwingConstants.CENTER);
-        lblValue.setFont(new Font("Arial", Font.BOLD, 36));
-        lblValue.setForeground(Color.WHITE);
-        lblValue.setBorder(BorderFactory.createEmptyBorder(5, 5, 10, 5));
-
-        panel.add(lblName, BorderLayout.NORTH);
-        panel.add(lblValue, BorderLayout.CENTER);
-
-        return panel;
-    }
-
-    public void updateStatistics(int[] stats) {
-        lblUsers.setText(String.valueOf(stats[0]));
-        lblBooks.setText(String.valueOf(stats[1]));
-        lblActiveLoans.setText(String.valueOf(stats[2]));
-        lblLateLoans.setText(String.valueOf(stats[3]));
-        lblAvailable.setText(String.valueOf(stats[4]));
-        lblCopies.setText(String.valueOf(stats[5]));
-    }
-}
-</file>
-
-<file path="src/App.java">
-import co.edu.uptc.controller.ClientController;
-import co.edu.uptc.view.DashBoard;
-import javax.swing.JOptionPane;
-
-public class App {
-    public static void main(String[] args) {
-
-        String ip = recoveryIP();
-
-        if (ip == null || ip.trim().isEmpty()) {
-            System.exit(0);
-        }
-
-        ClientController controller = new ClientController(ip);
-
-        DashBoard dashBoard = new DashBoard(controller);
-        dashBoard.setVisible(true);
-    }
-
-    public static String recoveryIP() {
-        return JOptionPane.showInputDialog(
-                null,
-                "Digite la IP del servidor:",
-                "Conexión al Servidor",
-                JOptionPane.QUESTION_MESSAGE);
-    }
-}
-</file>
-
-<file path="README.md">
-## Getting Started
-
-Welcome to the VS Code Java world. Here is a guideline to help you get started to write Java code in Visual Studio Code.
-
-## Folder Structure
-
-The workspace contains two folders by default, where:
-
-- `src`: the folder to maintain sources
-- `lib`: the folder to maintain dependencies
-
-Meanwhile, the compiled output files will be generated in the `bin` folder by default.
-
-> If you want to customize the folder structure, open `.vscode/settings.json` and update the related settings there.
-
-## Dependency Management
-
-The `JAVA PROJECTS` view allows you to manage your dependencies. More details can be found [here](https://github.com/microsoft/vscode-java-dependency#manage-dependencies).
 </file>
 
 <file path="repomix-client.xml">

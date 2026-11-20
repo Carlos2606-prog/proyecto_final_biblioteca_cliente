@@ -17,6 +17,7 @@ public class ClientController {
     private boolean connected;
     private String lastCriterion = "";
     private String lastSearch = "";
+    private static final String MESSAGE_PREFIX = "NOTIFICATION;MESSAGE;";
 
     public ClientController(String serverIp) {
         this.client = new ServerClient(serverIp, PORT);
@@ -38,9 +39,14 @@ public class ClientController {
         this.dashBoard = dashBoard;
     }
 
-    private void onServerNotification() {
+    private void onServerNotification(String message) {
         SwingUtilities.invokeLater(() -> {
-            if (dashBoard != null) {
+            if (dashBoard == null) {
+                return;
+            }
+            if (message.startsWith(MESSAGE_PREFIX)) {
+                dashBoard.showNotification(message.substring(MESSAGE_PREFIX.length()));
+            } else {
                 dashBoard.refreshCurrentPanel();
             }
         });
@@ -110,7 +116,6 @@ public class ClientController {
         }
     }
 
-
     public void loginAdmin(String user, String password) {
         try {
             String response = client.sendRequest("LOGIN_ADMIN;" + clean(user) + ";" + password.replace(";", ","));
@@ -144,7 +149,6 @@ public class ClientController {
             System.err.println("Error al cerrar sesión en el servidor");
         }
     }
-
 
     public void updateBooksTable() {
         try {
@@ -223,11 +227,9 @@ public class ClientController {
         }
     }
 
-
     public void refreshSearch(boolean isAdmin) {
         searchBooks(lastCriterion, lastSearch, isAdmin);
     }
-
 
     public void updateUsersTable() {
         try {
@@ -244,7 +246,8 @@ public class ClientController {
 
     public void addUser(String id, String name, String type) {
         try {
-            String response = client.sendRequest(String.format("ADD_USER;%s;%s;%s", clean(id), clean(name), clean(type)));
+            String response = client
+                    .sendRequest(String.format("ADD_USER;%s;%s;%s", clean(id), clean(name), clean(type)));
             if (checkOrShow(response)) {
                 updateUsersTable();
             }
@@ -255,7 +258,8 @@ public class ClientController {
 
     public void editUser(String id, String name, String type) {
         try {
-            String response = client.sendRequest(String.format("EDIT_USER;%s;%s;%s", clean(id), clean(name), clean(type)));
+            String response = client
+                    .sendRequest(String.format("EDIT_USER;%s;%s;%s", clean(id), clean(name), clean(type)));
             if (checkOrShow(response)) {
                 updateUsersTable();
             }
@@ -274,7 +278,6 @@ public class ClientController {
             showError(e);
         }
     }
-
 
     public void loadBooksForLoan() {
         try {
@@ -384,10 +387,7 @@ public class ClientController {
         }
     }
 
-    // ==========================================
-    // PERFIL Y ESTADISTICAS
-    // ==========================================
-
+  
     public void updateUserInfo() {
         try {
             String response = client.sendRequest("GET_MY_DETAILS");
@@ -405,20 +405,4 @@ public class ClientController {
         }
     }
 
-    public void updateStatistics() {
-        try {
-            String response = client.sendRequest("GET_STATISTICS");
-            if (!checkOrShow(response)) {
-                return;
-            }
-            JsonArray array = parseArray(response);
-            int[] stats = new int[6];
-            for (int i = 0; i < stats.length; i++) {
-                stats[i] = array.get(i).getAsInt();
-            }
-            dashBoard.getPanelStatistics().updateStatistics(stats);
-        } catch (Exception e) {
-            showError(e);
-        }
-    }
 }

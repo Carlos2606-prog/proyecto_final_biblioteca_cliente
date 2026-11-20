@@ -15,6 +15,5 @@ public class MenuAdmin extends SideMenuPanel {
         addOption("registrarPrestamo", "Registrar Préstamo");
         addOption("registrarDevolucion", "Registrar Devolución");
         addOption("buscarLibrosAdmin", "Buscar Libros");
-        addOption("estadisticas", "Ver Estadísticas");
     }
 }
