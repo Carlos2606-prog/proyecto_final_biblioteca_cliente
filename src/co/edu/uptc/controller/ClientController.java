@@ -38,11 +38,6 @@ public class ClientController {
         this.dashBoard = dashBoard;
     }
 
-    // ==========================================
-    // UTILIDADES
-    // ==========================================
-
-    /** El servidor avisa que los datos cambiaron: se recarga la pantalla actual. */
     private void onServerNotification() {
         SwingUtilities.invokeLater(() -> {
             if (dashBoard != null) {
@@ -68,7 +63,6 @@ public class ClientController {
         return new JsonParser().parse(payload(response)).getAsJsonArray();
     }
 
-    /** true si la respuesta fue exitosa; si no, muestra el error al usuario. */
     private boolean checkOrShow(String response) {
         if (isOk(response)) {
             return true;
@@ -81,7 +75,6 @@ public class ClientController {
         dashBoard.showMessage("Error: " + e.getMessage());
     }
 
-    /** El separador del protocolo es ';', asi que no puede ir dentro de los datos. */
     private String clean(String s) {
         return s == null ? "" : s.replace(";", ",").trim();
     }
@@ -111,16 +104,12 @@ public class ClientController {
         return rows;
     }
 
-    /** Los ids de prestamo se muestran como L1, L2... (asi los interpreta PanelRegisterRefund). */
     private void prefixLoanIds(Object[][] rows) {
         for (Object[] row : rows) {
             row[0] = "L" + row[0];
         }
     }
 
-    // ==========================================
-    // LOGIN Y SESION
-    // ==========================================
 
     public void loginAdmin(String user, String password) {
         try {
@@ -156,9 +145,6 @@ public class ClientController {
         }
     }
 
-    // ==========================================
-    // LIBROS
-    // ==========================================
 
     public void updateBooksTable() {
         try {
@@ -237,14 +223,11 @@ public class ClientController {
         }
     }
 
-    /** Repite la ultima busqueda (se usa al recibir una notificacion del servidor). */
+
     public void refreshSearch(boolean isAdmin) {
         searchBooks(lastCriterion, lastSearch, isAdmin);
     }
 
-    // ==========================================
-    // USUARIOS
-    // ==========================================
 
     public void updateUsersTable() {
         try {
@@ -292,9 +275,6 @@ public class ClientController {
         }
     }
 
-    // ==========================================
-    // PRESTAMOS
-    // ==========================================
 
     public void loadBooksForLoan() {
         try {
@@ -312,7 +292,6 @@ public class ClientController {
                 userItems[i + 1] = str(o, "userId") + " - " + str(o, "name");
             }
 
-            // Solo libros con al menos una copia disponible
             JsonArray books = parseArray(booksResponse);
             java.util.List<String> bookItems = new java.util.ArrayList<>();
             bookItems.add("-- Seleccione --");
