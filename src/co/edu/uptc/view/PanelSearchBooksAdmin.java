@@ -56,20 +56,10 @@ public class PanelSearchBooksAdmin extends JPanel {
         tblResults.setRowHeight(25);
         JScrollPane scrollPane = new JScrollPane(tblResults);
 
-        JPanel panelInferior = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 15));
-        panelInferior.setBackground(new Color(240, 248, 255));
-        JButton btnGoBack = new JButton("Volver al Menú");
-        btnGoBack.setFont(new Font("Arial", Font.BOLD, 14));
-        btnGoBack.setBackground(new Color(128, 128, 128));
-        btnGoBack.setForeground(Color.WHITE);
-        btnGoBack.setFocusPainted(false);
-        btnGoBack.addActionListener(e -> dashBoard.showPanel("menuAdmin"));
-        panelInferior.add(btnGoBack);
 
         add(paneltitle, BorderLayout.NORTH);
         add(panelSearch, BorderLayout.PAGE_START);
         add(scrollPane, BorderLayout.CENTER);
-        add(panelInferior, BorderLayout.SOUTH);
     }
 
     private void performSearch() {

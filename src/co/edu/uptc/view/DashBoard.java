@@ -31,7 +31,7 @@ public class DashBoard extends JFrame {
         this.controller = controller;
         controller.setView(this);
         setTitle("Biblioteca Virtual");
-        setSize(900, 600);
+        setSize(1150, 650);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
@@ -67,30 +67,43 @@ public class DashBoard extends JFrame {
         mainPanel.add(panelLoginAdmin, "loginAdmin");
         mainPanel.add(menuUser, "menuUsuario");
         mainPanel.add(menuAdmin, "menuAdmin");
-        mainPanel.add(panelManagementUsers, "gestionUsuarios");
-        mainPanel.add(panelManagementBook, "gestionLibros");
-        mainPanel.add(panelRegisterLoan, "registrarPrestamo");
-        mainPanel.add(panelRegisterRefund, "registrarDevolucion");
-        mainPanel.add(panelSearchBooksAdmin, "buscarLibrosAdmin");
-        mainPanel.add(panelSearchBooksUser, "buscarLibrosUsuario");
-        mainPanel.add(panelMyLoans, "misPrestamos");
-        mainPanel.add(panelMyDetails, "misDatos");
-        mainPanel.add(panelStatistics, "estadisticas");
+        menuAdmin.addContent("gestionUsuarios", panelManagementUsers);
+        menuAdmin.addContent("gestionLibros", panelManagementBook);
+        menuAdmin.addContent("registrarPrestamo", panelRegisterLoan);
+        menuAdmin.addContent("registrarDevolucion", panelRegisterRefund);
+        menuAdmin.addContent("buscarLibrosAdmin", panelSearchBooksAdmin);
+        menuAdmin.addContent("estadisticas", panelStatistics);
+        menuUser.addContent("buscarLibrosUsuario", panelSearchBooksUser);
+        menuUser.addContent("misPrestamos", panelMyLoans);
+        menuUser.addContent("misDatos", panelMyDetails);
     }
 
     public void showPanel(String nombrePanel) {
         currentPanel = nombrePanel;
         loadPanelData(nombrePanel, true);
+
+        if ("menuAdmin".equals(nombrePanel)) {
+            menuAdmin.showContent(SideMenuPanel.HOME);
+        } else if ("menuUsuario".equals(nombrePanel)) {
+            menuUser.showContent(SideMenuPanel.HOME);
+        } else if (menuAdmin.hasContent(nombrePanel)) {
+            menuAdmin.showContent(nombrePanel);
+            cardLayout.show(mainPanel, "menuAdmin");
+            return;
+        } else if (menuUser.hasContent(nombrePanel)) {
+            menuUser.showContent(nombrePanel);
+            cardLayout.show(mainPanel, "menuUsuario");
+            return;
+        }
         cardLayout.show(mainPanel, nombrePanel);
     }
 
-    /** Lo llama el controlador cuando el servidor avisa que los datos cambiaron. */
     public void refreshCurrentPanel() {
         loadPanelData(currentPanel, false);
     }
 
-    private void loadPanelData(String nombrePanel, boolean firstTime) {
-        switch (nombrePanel) {
+    private void loadPanelData(String panelName, boolean firstTime) {
+        switch (panelName) {
             case "gestionUsuarios":
                 controller.updateUsersTable();
                 break;
@@ -98,7 +111,6 @@ public class DashBoard extends JFrame {
                 controller.updateBooksTable();
                 break;
             case "registrarPrestamo":
-                // Al refrescar no se recarga para no borrar lo que el admin esta seleccionando
                 if (firstTime) {
                     controller.loadBooksForLoan();
                 }

@@ -29,19 +29,9 @@ public class PanelMyDetails extends JPanel {
         txtDetailsArea.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
         JScrollPane scrollPane = new JScrollPane(txtDetailsArea);
 
-        JPanel panelInferior = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 15));
-        panelInferior.setBackground(new Color(240, 248, 255));
-        JButton btnGoBack = new JButton("Volver al Menú");
-        btnGoBack.setFont(new Font("Arial", Font.BOLD, 14));
-        btnGoBack.setBackground(new Color(128, 128, 128));
-        btnGoBack.setForeground(Color.WHITE);
-        btnGoBack.setFocusPainted(false);
-        btnGoBack.addActionListener(e -> dashBoard.showPanel("menuUsuario"));
-        panelInferior.add(btnGoBack);
 
         add(panelTitle, BorderLayout.NORTH);
         add(scrollPane, BorderLayout.CENTER);
-        add(panelInferior, BorderLayout.SOUTH);
     }
 
     public void updateUserData(String info) {

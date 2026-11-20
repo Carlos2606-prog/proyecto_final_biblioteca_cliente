@@ -45,19 +45,9 @@ public class PanelStatistics extends JPanel {
         lblCopies = new JLabel("0");
         panelCentral.add(createPanelStatistics("Total Copias", lblCopies, new Color(138, 43, 226)));
 
-        JPanel panelInferior = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 15));
-        panelInferior.setBackground(new Color(240, 248, 255));
-        JButton btnGoBack = new JButton("Volver al Menú");
-        btnGoBack.setFont(new Font("Arial", Font.BOLD, 14));
-        btnGoBack.setBackground(new Color(128, 128, 128));
-        btnGoBack.setForeground(Color.WHITE);
-        btnGoBack.setFocusPainted(false);
-        btnGoBack.addActionListener(e -> dashBoard.showPanel("menuAdmin"));
-        panelInferior.add(btnGoBack);
 
         add(panelTitle, BorderLayout.NORTH);
         add(panelCentral, BorderLayout.CENTER);
-        add(panelInferior, BorderLayout.SOUTH);
     }
 
     private JPanel createPanelStatistics(String name, JLabel lblValue, Color color) {

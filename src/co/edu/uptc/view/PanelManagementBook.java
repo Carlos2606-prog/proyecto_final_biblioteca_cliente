@@ -109,21 +109,9 @@ public class PanelManagementBook extends JPanel {
 
         JScrollPane scrollPane = new JScrollPane(tblBooks);
 
-        JPanel panelInferior = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 15));
-        panelInferior.setBackground(new Color(240, 248, 255));
-        JButton btnVolver = new JButton("Volver al Menú");
-        btnVolver.setFont(new Font("Arial", Font.BOLD, 14));
-        btnVolver.setBackground(new Color(128, 128, 128));
-        btnVolver.setForeground(Color.WHITE);
-        btnVolver.setFocusPainted(false);
-        btnVolver.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btnVolver.addActionListener(e -> dashBoard.showPanel("menuAdmin"));
-        panelInferior.add(btnVolver);
-
         add(panelTitle, BorderLayout.NORTH);
         add(panelForm, BorderLayout.PAGE_START);
         add(scrollPane, BorderLayout.CENTER);
-        add(panelInferior, BorderLayout.SOUTH);
     }
 
     private void addBook() {
@@ -145,15 +133,13 @@ public class PanelManagementBook extends JPanel {
         int fila = tblBooks.getSelectedRow();
         if (fila >= 0) {
             if (!txtCode.getText().trim().isEmpty() && !txtTitle.getText().trim().isEmpty()) {
-                // Llamar al nuevo método que maneja copias
                 dashBoard.getController().editBook(
                         txtCode.getText().trim(),
                         txtTitle.getText().trim(),
                         txtAuthor.getText().trim(),
                         txtKind.getText().trim(),
                         txtYear.getText().trim(),
-                        txtCopies.getText().trim() // Ahora se envía el número de copias
-                );
+                        txtCopies.getText().trim());
                 cleanFields();
             } else {
                 dashBoard.showMessage("Complete al menos el código y el título del libro");
